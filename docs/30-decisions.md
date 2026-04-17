@@ -77,7 +77,7 @@ Kurze, fortlaufende Notizen zu jeder technischen Weggabelung.
 ## ADR-006 — Enrollment-Architektur (einmalig) + Runtime (keychain-los)
 
 **Datum**: 2026-04-17
-**Status**: Akzeptiert. **TCC-Developer-Tools-Hypothese ist empirisch widerlegt** (macOS 26.3.1 Apple Silicon, Test am 2026-04-17). Enrollment benötigt **SIP-off**.
+**Status**: Akzeptiert. **Sowohl TCC-Developer-Tools- als auch Dev-ID-/cs.debugger-Hypothese sind empirisch widerlegt** (macOS 26.3.1 Apple Silicon, Tests am 2026-04-17). Enrollment benötigt **SIP-off**.
 
 **Kontext**: Erkundung der macOS-Keychain hat bestätigt, dass auf einem locked-down System (SIP an, AMFI an, keine Sonder-Entitlements) die Lassen-AppGroup-Keychain-Einträge nicht lesbar sind. SEP-Binding + Team-ID-Check in `securityd` sind Apples Design, keine umgehbare Fehlkonfiguration. Ein wirklich generisches "läuft auf jedem Mac"-Key-Extract ist daher ausgeschlossen.
 
@@ -85,14 +85,22 @@ Kurze, fortlaufende Notizen zu jeder technischen Weggabelung.
 1. **Enrollment-Modus** (`kindle-enroll enroll <ASIN>`): benötigt **SIP deaktiviert** (csrutil disable) während der Extraktion. Kann für mehrere Bücher am Stück in einer SIP-off-Session erledigt werden. Danach kann SIP wieder aktiviert werden.
 2. **Runtime-Modus**: liest nur `~/.config/kindle-extractor/keys.json` + `.azw8`-Dateien. Kein LLDB, kein Keychain-Zugriff. Läuft auf jedem macOS ohne Sonderrechte — SIP an oder aus.
 
-**Empirische Befunde zum TCC-Weg (2026-04-17)**:
-- Test-Setup: macOS 26.3.1 (Build 25D2128) Apple Silicon, SIP=on, TCC "Developer Tools" für Terminal freigeschaltet, Kindle 7.56 mit Buch im Reader geöffnet.
-- Ergebnis: `debugserver`-Attach-Versuch wird vom Kernel direkt mit `task_for_pid` → `KERN_FAILURE (0x5)` nach ~1 ms abgewiesen, **ohne** dass `tccd` den "Developer Tools"-Check überhaupt ausgeführt hätte. Keine tccd-Log-Einträge für diesen Attach.
-- Deutung: auf macOS 26 + Apple Silicon wird für Production-Apps mit `get-task-allow=false` + Hardened Runtime `task_for_pid` auf Kernel-Ebene blockiert, bevor die Entitlement-/TCC-Policy konsultiert wird. TCC "Developer Tools" reicht für diesen Fall nicht.
-- Alternativen:
-  - `csrutil enable --without debug`: auf Apple Silicon nicht mehr verfügbar.
-  - `amfi_get_out_of_my_way=0x1` boot-arg: braucht SIP-off zum Setzen, danach kein echter Gewinn gegenüber SIP-off.
-  - Apple-Developer-ID-Binary mit restricted `com.apple.security.cs.debugger`-Entitlement: teuer (99 $/Jahr + Apple-Review), aber die einzige Variante, die ohne SIP-off end-to-end ginge. Out of scope für Eigennutzungs-Tool.
+**Empirische Befunde zu allen SIP=on-Wegen (2026-04-17, macOS 26.3.1 Apple Silicon)**:
+
+| Variante | Entitlement-Quelle | Ergebnis |
+|---|---|---|
+| Apple `debugserver` + TCC "Developer Tools" | Apple-signed, `com.apple.private.cs.debugger` | **KERN_FAILURE 0x5** nach ~1 ms, keine tccd-Entries |
+| ad-hoc binary, kein Entitlement | — | KERN_FAILURE 0x5 (Referenz-Fail) |
+| ad-hoc binary, `com.apple.security.cs.debugger` | ad-hoc sig | **KERN_FAILURE 0x5** — AMFI entfernt restricted Entitlement bei ad-hoc Signatur |
+| ad-hoc binary, `cs.debugger` + `get-task-allow` | ad-hoc sig | KERN_FAILURE 0x5 |
+
+**Deutung**: Auf macOS 26 Apple Silicon wird für Production-Apps mit `get-task-allow=false` + Hardened Runtime der `task_for_pid`-Call auf Kernel-Ebene sofort blockiert. Weder TCC noch Entitlements können das umgehen, solange die Caller-Signatur nicht durch ein Apple-genehmigtes Provisioning-Profil legitimiert ist.
+
+**Noch theoretisch verbliebene Variante**: Apple Developer Program ($99/Jahr) + explizit per Apple-Approval legitimiertes `cs.debugger`-Entitlement. Apple reviewt restricted Entitlements manuell; für ein "Kindle decrypt tool" ist eine Ablehnung nahezu sicher. **Out of scope**.
+
+**Verworfene Varianten**:
+- `csrutil enable --without debug`: auf Apple Silicon nicht verfügbar.
+- `amfi_get_out_of_my_way=0x1` boot-arg: benötigt SIP-off zum Setzen.
 
 **Konsequenzen**:
 - Enrollment-Workflow dokumentiert in `docs/21-enrollment.md` und `docs/ONBOARDING.md` wird auf **"SIP vorübergehend deaktivieren"** umgestellt.

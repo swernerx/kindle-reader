@@ -19,7 +19,7 @@ Architektur ist jetzt sauber in drei Stufen getrennt:
 - **Runtime** (jedes macOS, keine Spezialrechte): liest `keys.json` + `.azw8` → Markdown/ePub. Kommt in Phase 3–5.
 - **Key-Rotation**: wenn Amazon-Konto wechselt oder Device re-pairt → neues Enrollment.
 
-**TCC-Hypothese** (SIP=on + TCC "Developer Tools"): theoretisch reicht das, noch nicht empirisch verifiziert. Test-Checklist in `docs/21-enrollment.md` für die spätere Verifikation dokumentiert.
+**TCC-Hypothese widerlegt** (2026-04-17, macOS 26.3.1 Apple Silicon): `debugserver` wird auf Kernel-Ebene sofort mit `KERN_FAILURE` abgewiesen, TCC wird gar nicht konsultiert. Auch ad-hoc signiertes Binary mit `com.apple.security.cs.debugger`-Entitlement scheitert identisch (AMFI entfernt restricted Entitlement bei nicht-Apple-legitimierten Signaturen). Definitiv: **Enrollment benötigt SIP=off**. Batch-Workflow (alle Bücher in einer SIP-off-Session) dämpft den Aufwand.
 
 **Phase 2b — Content-Key extrahiert!** 🎯. Für "On Writing Well" (ASIN B0090RVGW0) ist die AES-128-Key-bytesequenz für `amzn1.drm-key.v1.b0aec2ee-f4d6-4d4b-a19f-cd8903e52739` = **`a931438314febc3641495ec212eae24d`**.
 
@@ -98,3 +98,4 @@ Vollständige Angaben nach Phase 1.
 - **2026-04-17** — Keychain-Erkundung: Lassens Data-Protection-Keychain hat 10+ Einträge mit `agrp = J7P34ALZ5R.com.amazon.Lassen` (Data-Spalten 2–11 KB groß), aber Per-User/Per-SEP-Verschlüsselung macht sie offline unlesbar. Einziger User-Keychain-Eintrag: `mobilePandaAccountManager:com.amazon.Lassen` = DSN (`822917...`), = wahrscheinlich `CLIENT_ID`.
 - **2026-04-17** — Entscheidung: Enrollment-Architektur. Memory-Brute-Force einmal pro Buch, danach runtime-keychain-los. TCC "Developer Tools" ist plausible SIP-freie Alternative zum SIP-Disable, aber noch nicht verifiziert. ADR-006.
 - **2026-04-17** — **Phase 2c abgeschlossen**: `kindle-enroll enroll <ASIN>` als sauberer TS-CLI. 33s End-to-End für OWW.
+- **2026-04-17** — **SIP=on-Hypothesen widerlegt**: Nutzer-Test auf Zweit-Mac (macOS 26.3.1 Apple Silicon). TCC "Developer Tools" + Apple `debugserver` → `KERN_FAILURE` nach 1 ms ohne TCC-Konsultation. Ad-hoc signiertes Binary mit public `cs.debugger`-Entitlement (via `tfp-probe/probe-debugger`) → identisch fail. AMFI entfernt restricted Entitlements bei nicht-Apple-legitimierten Signaturen. Enrollment **zwingend mit SIP=off**. Batch aller 5 Bücher in einer Session praktikabel. ADR-006 aktualisiert, ONBOARDING.md neu strukturiert.
