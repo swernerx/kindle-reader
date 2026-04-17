@@ -48,6 +48,36 @@ open "/Applications/Amazon Kindle.app"
 
 → Manuell auf das Buch klicken, bis der Reader sichtbar ist.
 
+## 4a. Ergebnis des ersten Tests (2026-04-17, macOS 26.3.1 Apple Silicon)
+
+**TCC "Developer Tools" ist NICHT ausreichend.** Empirisch verifiziert:
+`debugserver`'s `task_for_pid(<Kindle-PID>)` wird auf Kernel-Ebene mit `KERN_FAILURE (0x5)` nach ~1 ms abgewiesen, **ohne** dass `tccd` überhaupt konsultiert wird. Voller Logbeweis im Commit 5 (siehe `git log`).
+
+Die Konsequenz: **Enrollment benötigt SIP deaktiviert** (`csrutil disable` im Recovery-Mode, reboot, Enrollment, `csrutil enable`, reboot). Zwei Reboots pro Enrollment-Batch.
+
+## 4b. Offener Nebenstrang: Apple Developer ID + `cs.debugger` Entitlement
+
+Bevor wir SIP-off endgültig als Minimalanforderung festschreiben, gibt es eine letzte Test-Option: ein eigenes kleines C-Binary mit der public-Entitlement `com.apple.security.cs.debugger`. Unter SIP=off funktioniert diese Entitlement (verifiziert). Die Frage ist, ob sie auch unter SIP=on greift, wenn ad-hoc signiert.
+
+Test:
+
+```bash
+cd packages/keychain-probe/scripts/tfp-probe
+make
+PID=$(pgrep -x Kindle)
+make run-all PID=$PID
+```
+
+Die Testsuite druckt für drei Varianten `SUCCESS` oder Fehler:
+- `probe-bare` — kein Entitlement (Referenz-Fehlschlag)
+- `probe-debugger` — nur `com.apple.security.cs.debugger`
+- `probe-debugger-gta` — debugger + `get-task-allow` (Kontrolle)
+
+**Erwartung** (wenn die Hypothese "restricted Entitlement wird auf SIP=on stripped" stimmt): alle drei Varianten fail.
+**Überraschender Erfolg**: `probe-debugger` zeigt SUCCESS → Dev-ID-Weg wäre potenziell tragfähig.
+
+Ergebnis bitte in `docs/30-decisions.md` ADR-006 vermerken.
+
 ## 4. Das kritische Experiment: TCC "Developer Tools" ausreichend?
 
 **Variante A** — ohne TCC-Freischaltung probieren (Referenz-Experiment; erwartet Fehlschlag):

@@ -26,3 +26,8 @@ Package.resolved
 
 # TS
 *.tsbuildinfo
+
+# tfp-probe build artifacts
+packages/keychain-probe/scripts/tfp-probe/probe-bare
+packages/keychain-probe/scripts/tfp-probe/probe-debugger
+packages/keychain-probe/scripts/tfp-probe/probe-debugger-gta
