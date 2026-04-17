@@ -9,6 +9,9 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
+  "dependencies": {
+    "ion-js": "^5.2.0"
+  },
   "devDependencies": {
     "@types/node": "^22.7.5",
     "typescript": "^5.6.3"

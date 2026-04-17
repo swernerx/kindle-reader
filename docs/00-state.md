@@ -12,7 +12,9 @@
 
 ## Letzter Schritt
 
-**Phase 1 abgeschlossen** ✓. `@kindle/catalog` listet alle 5 KFX-Bücher mit Titel, Fortschritt, Größe, Bundle-Inventar und Cover-URL. DBs werden vor Zugriff nach `os.tmpdir()` kopiert (safe).
+**Phase 2a — Voucher-Parser fertig** ✓. `@kindle/drmion` parst alle 5 `amzn1.drm-voucher.v1.*.voucher`-Dateien konsistent: Algorithmus-Spec (`AES/CBC/PKCS5Padding` + `HmacSHA256`), Key-Derivation-Inputs (`ACCOUNT_SECRET`, `CLIENT_ID`), 32-B HMAC, 1007-B Ciphertext. Struktur ist über alle Bücher identisch (bytes 0–123 byte-identisch, Ciphertext unterscheidet sich ab Byte 124).
+
+**Phase 1** ✓. `@kindle/catalog` listet alle 5 KFX-Bücher mit Titel, Fortschritt, Größe, Bundle-Inventar und Cover-URL.
 
 Stichprobe aus Live-Run:
 
@@ -41,10 +43,12 @@ Autor-Feld bleibt `<verschlüsselt>`, bis Phase 2/3 den Key liefern.
 
 ## Nächster Schritt
 
-**Phase 2 — Voucher zuerst** (Nutzerentscheidung):
-1. `amzn1.drm-voucher.v1.*.voucher` als Ion-Binary parsen (Header `e0 01 00 ea` = Ion Version Marker) via `ion-js`.
-2. Struktur-Dokumentation in `docs/20-keychain-probe.md`: welche Felder existieren, was ist klartextlich, was deutet auf externe Key-Quelle.
-3. Erst danach Keychain-Zugriffsversuche: `security`-CLI → Swift-Helper → ggf. LLDB.
+**Phase 2b — Keychain-Werte finden**. Die Voucher referenzieren `ACCOUNT_SECRET` und `CLIENT_ID` als Namen, die tatsächlichen Werte müssen aus der macOS-Keychain kommen (AppGroup `group.com.amazon.Lassen`).
+
+Arbeitsreihenfolge (eskalierend, weniger invasiv zuerst):
+1. `security find-generic-password` / `security dump-keychain` gegen User-Keychain — sucht nach Services/Labels mit `Lassen`, `amazon`, `kindle`, `DSN`, `ACCOUNT_SECRET`, `CLIENT_ID`.
+2. Falls User-Keychain die Items nicht exponiert: Swift-CLI-Helper in `packages/keychain-probe` mit `kSecAttrAccessGroup = "group.com.amazon.Lassen"` (braucht passende Code-Signatur/Entitlements).
+3. LLDB-Fallback (nach Nutzer-Bestätigung pro Schritt): Lassen starten, ein Buch öffnen (umgeht Anti-Debug), `SecItemCopyMatching`-Breakpoint, Keychain-Keys aus Speicher abgreifen.
 
 **Hinweis zu LLDB-Attach** (Nutzer-Tip): Die Kindle-App hat ein Anti-Debug-Verhalten, das beim Kaltstart zu Abstürzen führt. Stabil wird der Attach erst **nach Öffnen eines Buches**. Wenn wir LLDB brauchen, folgen wir dieser Reihenfolge: Lassen starten → Buch öffnen → `lldb -p <pid>`.
 
