@@ -5,7 +5,7 @@ dump_small.py — LLDB script. Dump only small writable memory regions
 import lldb  # type: ignore
 import os
 
-DUMP_DIR = "/tmp/kindle-brute"
+DUMP_DIR = os.environ.get("KINDLE_DUMP_DIR", "/tmp/kindle-brute")
 MAX_REGION = 4 * 1024 * 1024  # 4 MiB max per region
 MIN_REGION = 4 * 1024         # 4 KiB min
 

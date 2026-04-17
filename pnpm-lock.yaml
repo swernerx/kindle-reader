@@ -46,6 +46,22 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
 
+  packages/keychain-probe:
+    dependencies:
+      '@kindle/catalog':
+        specifier: workspace:*
+        version: link:../catalog
+      '@kindle/drmion':
+        specifier: workspace:*
+        version: link:../drmion
+    devDependencies:
+      '@types/node':
+        specifier: ^22.7.5
+        version: 22.19.17
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+
   packages/kfx-parser:
     devDependencies:
       '@types/node':

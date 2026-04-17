@@ -74,6 +74,24 @@ Kurze, fortlaufende Notizen zu jeder technischen Weggabelung.
 
 ---
 
+## ADR-006 — Enrollment-Architektur (einmalig) + Runtime (keychain-los)
+
+**Datum**: 2026-04-17
+**Status**: Akzeptiert
+
+**Kontext**: Erkundung der macOS-Keychain hat bestätigt, dass auf einem locked-down System (SIP an, AMFI an, keine Sonder-Entitlements) die Lassen-AppGroup-Keychain-Einträge nicht lesbar sind. SEP-Binding + Team-ID-Check in `securityd` sind Apples Design, keine umgehbare Fehlkonfiguration. Ein wirklich generisches "läuft auf jedem Mac"-Key-Extract ist daher ausgeschlossen.
+
+**Entscheidung**: Architektur in zwei Stufen:
+1. **Enrollment-Modus** (`kindle-enroll enroll <ASIN>`): benötigt Debugger-Rechte (SIP off ODER TCC "Developer Tools"). Pro Buch einmal auszuführen.
+2. **Runtime-Modus**: liest nur `~/.config/kindle-extractor/keys.json` + `.azw8`-Dateien. Kein LLDB, kein Keychain-Zugriff. Läuft auf jedem macOS ohne Sonderrechte.
+
+**Konsequenzen**:
+- Neuer Kauf / neues Buch → einmaliges Enrollment nötig. Nicht ideal, aber klar begrenzt.
+- Locked-down Runtime ist der UX-Schwerpunkt; Enrollment als "Dev-Flavor"-Schritt akzeptabel.
+- **TCC-Developer-Tools-Hypothese** ist die Sparversion von SIP-off für das Enrollment. Noch nicht empirisch bestätigt; Test-Plan in `docs/21-enrollment.md`.
+
+---
+
 ## ADR-004 — ePub-Ausgabe: `epub-gen-memory`
 
 **Datum**: 2026-04-17
