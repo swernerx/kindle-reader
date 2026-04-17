@@ -21,6 +21,10 @@ Lokale Extraktion selbst gekaufter Kindle-Bücher aus der macOS-App `com.amazon.
 
 Der Plan steht in `/Users/sebastian/.claude/plans/ich-w-rde-gerne-eine-happy-mccarthy.md`. Agent-Rechercheberichte liegen als Anhang in `docs/10-filesystem.md`, `docs/11-drmion-format.md`, `docs/12-ui-ocr-fallback.md`.
 
+## Einstieg auf einer neuen Maschine
+
+Siehe [`docs/ONBOARDING.md`](docs/ONBOARDING.md) für das komplette Setup (Klonen, Build, Kindle-App-Voraussetzungen, Enrollment-Test unter SIP=on + TCC).
+
 ## Dokumentationsdisziplin
 
 - `docs/00-state.md` — Live-Status nach jedem Arbeitsblock aktualisiert.
