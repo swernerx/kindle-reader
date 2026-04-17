@@ -51,6 +51,29 @@ Kurze, fortlaufende Notizen zu jeder technischen Weggabelung.
 
 ---
 
+## ADR-005 — Content-Key per LLDB-Memory-Dump + Known-Plaintext-Brute-Force
+
+**Datum**: 2026-04-17
+**Status**: Akzeptiert (Funktioniert für OWW verifiziert)
+
+**Kontext**: Der Voucher referenziert `ACCOUNT_SECRET` + `CLIENT_ID` als Keychain-AppGroup-Items. Eine ad-hoc signierte Swift-CLI mit passenden Entitlements wurde von `securityd` silent abgewiesen. Lassen nutzt CryptoKit statt CommonCrypto, daher schlug ein `CCCryptorCreate`-Hook fehl.
+
+**Entscheidung**: Pragmatische Alternative via In-Process-Memory-Scan: LLDB attach → writable Regionen < 4 MiB dumpen (235 MiB) → Offline-Brute-Force über jedes 8-Byte-aligned 16-Byte-Window als AES-128-Key. Validierung: 5 unabhängige (Ciphertext, IV)-Paare aus derselben .azw8-Datei, alle müssen mit demselben Key PKCS7-valid padden. False-Positive-Rate: (1/256)^5 ≈ 10^-12.
+
+**Konsequenzen**:
+- Extraktion pro Buch: Nutzer öffnet das Buch in Lassen, wir dumpen und brute-forcen. ~100 Sekunden pro Buch auf Apple Silicon (235 MiB / stride=8 / 5 Chunks × AES-128-CBC).
+- **Keine** Keychain-Manipulation zur Laufzeit. Nach einmaliger Extraktion speichern wir `uuid → key-bytes` in lokalem Config-File; die Produktionslösung ist damit keychain-los.
+- Ein einziger Key hängt pro Buch. ACCOUNT_SECRET und CLIENT_ID müssen wir **nicht** herausfinden.
+- Wenn Amazon in einer zukünftigen Lassen-Version keine Content-Keys mehr plaintext in App-Memory hält, wird dieser Ansatz brechen — dann müssen wir auf echtes Hook-RE (CryptoKit / corecrypto) ausweichen.
+
+**Erkennungen für die Dateistruktur**:
+- `.azw8` = 8 Byte DRMION-Magic + Ion-Stream mit Metadaten-Struct + (Ciphertext, IV)-Chunks + Signatur
+- Chunk-Cipher: AES-128-CBC-PKCS5Padding
+- Chunk-Kompression: LZMA "alone" (Props byte 0x5D, 4 MiB Dict, 8-Byte Uncompressed-Length-Feld, Pre-Sub-Chunk-Größe 10240 Bytes)
+- Pro .azw8 sind ~1–3 Gruppen, jede mit eigener Metadaten-Kopie (gleich über Gruppen)
+
+---
+
 ## ADR-004 — ePub-Ausgabe: `epub-gen-memory`
 
 **Datum**: 2026-04-17

@@ -4,7 +4,7 @@
 
 ## Aktueller Stand
 
-**Phase**: 2 — Keychain-Probe (Start)
+**Phase**: 2b abgeschlossen, Phase 3 Start
 **Ampel**: 🟢
 **Lassen-Version (referenziert)**: 7.56, Build 1.430240.10
 **macOS**: Darwin 25.3.0 (Tahoe-Zeitraum)
@@ -12,9 +12,21 @@
 
 ## Letzter Schritt
 
-**Phase 2a — Voucher-Parser fertig** ✓. `@kindle/drmion` parst alle 5 `amzn1.drm-voucher.v1.*.voucher`-Dateien konsistent: Algorithmus-Spec (`AES/CBC/PKCS5Padding` + `HmacSHA256`), Key-Derivation-Inputs (`ACCOUNT_SECRET`, `CLIENT_ID`), 32-B HMAC, 1007-B Ciphertext. Struktur ist über alle Bücher identisch (bytes 0–123 byte-identisch, Ciphertext unterscheidet sich ab Byte 124).
+**Phase 2b — Content-Key extrahiert!** 🎯. Für "On Writing Well" (ASIN B0090RVGW0) ist die AES-128-Key-bytesequenz für `amzn1.drm-key.v1.b0aec2ee-f4d6-4d4b-a19f-cd8903e52739` = **`a931438314febc3641495ec212eae24d`** (im Memory-Dump bei Offset 0x7ad2710).
 
-**Phase 1** ✓. `@kindle/catalog` listet alle 5 KFX-Bücher mit Titel, Fortschritt, Größe, Bundle-Inventar und Cover-URL.
+Weg: LLDB an laufenden Lassen-Prozess (PID 3948, Buch offen) → writeable Regionen < 4 MiB dumpen (235 MiB) → Offline-Brute-Force mit 5 simultanen (Ciphertext, IV)-Paaren aus der `.azw8`, PKCS7-Padding-Validation auf allen. Einziger Treffer = echter Key.
+
+End-to-end Verifikation (alle 5 Chunks dekrypted + LZMA-alone-dekomprimiert zu je 10240 Bytes, Chunk 0 beginnt mit "CONT" Header) ✓.
+
+**Erkenntnisse zur DRMION-Struktur**:
+- File-Header: 8 Bytes `ea 44 52 4d 49 4f 4e ee`
+- Ion-Stream: Liste von [Metadaten-Struct, (Ciphertext, IV) × N, Signatur]
+- Pro Chunk: AES-128-CBC-PKCS5 + LZMA-alone (Props=0x5D, Dict=4 MiB, Uncompressed-Länge=10240)
+- Metadata enthält `amzn1.drm-key.v1.<uuid>` für Content-Key und Signature-Key, sowie `amzn1.drm-voucher.v1.<uuid>`, "AES/CBC/PKCS5Padding", "SHA256withRSA", "LZMA".
+
+**Phase 2a** ✓. Voucher-Parser (1166B disk-format).
+
+**Phase 1** ✓. Catalog listet alle 5 KFX-Bücher.
 
 Stichprobe aus Live-Run:
 
@@ -43,12 +55,14 @@ Autor-Feld bleibt `<verschlüsselt>`, bis Phase 2/3 den Key liefern.
 
 ## Nächster Schritt
 
-**Phase 2b — Keychain-Werte finden**. Die Voucher referenzieren `ACCOUNT_SECRET` und `CLIENT_ID` als Namen, die tatsächlichen Werte müssen aus der macOS-Keychain kommen (AppGroup `group.com.amazon.Lassen`).
+**Phase 3 — DRMION-Entschlüsselungs-Paket**. Baue `@kindle/drmion` zu einem voll brauchbaren Modul aus:
+- `parseDrmion(bytes)` → strukturierter Container (Metadaten, verschlüsselte Chunks)
+- `decryptAndDecompressChunk(chunk, key)` → Raw-Plaintext
+- `decryptBook(bundlePath, key)` → alle Chunks zu einem Ion-Stream verknüpft
 
-Arbeitsreihenfolge (eskalierend, weniger invasiv zuerst):
-1. `security find-generic-password` / `security dump-keychain` gegen User-Keychain — sucht nach Services/Labels mit `Lassen`, `amazon`, `kindle`, `DSN`, `ACCOUNT_SECRET`, `CLIENT_ID`.
-2. Falls User-Keychain die Items nicht exponiert: Swift-CLI-Helper in `packages/keychain-probe` mit `kSecAttrAccessGroup = "group.com.amazon.Lassen"` (braucht passende Code-Signatur/Entitlements).
-3. LLDB-Fallback (nach Nutzer-Bestätigung pro Schritt): Lassen starten, ein Buch öffnen (umgeht Anti-Debug), `SecItemCopyMatching`-Breakpoint, Keychain-Keys aus Speicher abgreifen.
+Key-Source: zunächst File-basiert (`~/.config/kindle-extractor/keys.json` mit `uuid → hex`). Später eventuell automatisches Memory-Extrakt-Workflow für die anderen 4 Bücher.
+
+**Nachgelagert**: Keys für die anderen 4 Bücher per LLDB-Memory-Dump extrahieren (Nutzer muss jeweils das Buch öffnen, ich dump + brute-force). Erst aber die Pipeline für OWW end-to-end fertigstellen.
 
 **Hinweis zu LLDB-Attach** (Nutzer-Tip): Die Kindle-App hat ein Anti-Debug-Verhalten, das beim Kaltstart zu Abstürzen führt. Stabil wird der Attach erst **nach Öffnen eines Buches**. Wenn wir LLDB brauchen, folgen wir dieser Reihenfolge: Lassen starten → Buch öffnen → `lldb -p <pid>`.
 
@@ -73,4 +87,7 @@ Vollständige Angaben nach Phase 1.
 - **2026-04-17** — Explore-Phase abgeschlossen (drei parallele Agenten: Dateisystem, Tool-Recherche, UI-OCR-Fallback). Plan mit Decision-Gates finalisiert und genehmigt. RE-Pfad gewählt (Keychain → DRMION → KFX → Markdown/ePub). Strikt on-device, keine LLM-APIs.
 - **2026-04-17** — Phase 0 abgeschlossen: pnpm-Monorepo, Doku-Skelett, Agent-Reports als Anhang in `docs/`.
 - **2026-04-17** — Phase 1 abgeschlossen: `@kindle/catalog` liest BookData.sqlite + KSDK-DB, listet 5 KFX-Bücher mit Titel/Progress/Cover. Nutzer-Scope geklärt: nur KFX, keine Mobipocket/Audible-Reste.
-- **2026-04-17** — Phase 2 gestartet: Keychain-Probe + Voucher-Analyse.
+- **2026-04-17** — Phase 2 gestartet: Keychain-Probe + Voucher-Analyse. Erkenntnis: Lassen ist Mac-Catalyst-Build (`arm64-apple-ios-macabi`, Entitlement `keychain-access-groups = J7P34ALZ5R.com.amazon.Lassen`).
+- **2026-04-17** — Ad-hoc-signierte Swift-CLI mit passenden Entitlements wurde von `securityd` silent abgewiesen (Hang in Kernel-Wait). Pivot auf **In-Process-Extraktion per LLDB**.
+- **2026-04-17** — LLDB-Attach funktioniert (SIP off + get-task-allow=false ist hier kein Blocker, AMFI permissive für Drittanbieter-Apps). Memory-Scan findet Ion-BVMs, decrypt-ten Voucher und Key-Registry-Strukturen. Alle 5 Bücher teilen sich dasselbe Buch-Symbol-Dictionary + voucher-uuid-format.
+- **2026-04-17** — **Content-Key gefunden** per Known-Plaintext-Brute-Force (5 Chunks gleichzeitig + PKCS7). AES-128-CBC, LZMA-alone-Kompression, 10240-Byte Sub-Chunks. End-to-end verifiziert.
