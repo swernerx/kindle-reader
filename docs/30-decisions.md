@@ -74,6 +74,49 @@ Kurze, fortlaufende Notizen zu jeder technischen Weggabelung.
 
 ---
 
+## ADR-007 — Projekt-Ende in diesem Strang: Lassen-Local-RE braucht SIP-off, OCR-Alternativen sind der aussichtsreichere Praxis-Pfad
+
+**Datum**: 2026-04-17
+**Status**: Akzeptiert. Dieser Strang ist abgeschlossen; OCR-basierte Alternativen sind für die Produktions-UX die realistischere Route.
+
+**Kontext**: Ziel war, selbst gekaufte Kindle-Bücher lokal aus der macOS-Lassen-App in Markdown/ePub zu extrahieren, **ohne** SIP zu deaktivieren. Nach Phase 2c hatten wir einen funktionierenden Memory-Brute-Force-Enrollment-Workflow, der aber `task_for_pid` auf Lassen braucht.
+
+**Empirische Landkarte der SIP=on-Wege** (alle am 2026-04-17 auf macOS 26.3.1 Apple Silicon mit geöffnetem Kindle getestet; Commits `1d85702`, `fe0cf70`, `8e439f2`):
+
+| Angriffsfläche | Ergebnis |
+|---|---|
+| Apple `debugserver` + TCC "Developer Tools" | Kernel-level reject (`KERN_FAILURE` in 1 ms, kein tccd-Log) |
+| Ad-hoc signiertes Binary mit public `cs.debugger`-Entitlement | Kernel-level reject (AMFI stripped restricted Entitlement) |
+| Ad-hoc `cs.debugger` + `get-task-allow`-Entitlement | Kernel-level reject |
+| `fs_usage`-Trace auf Lassens Lese-/Schreibzugriffe | Keine Plaintext-Key-Material-Writes auf Platte. Alle crypto-sensiblen Daten nur im Data-Protection-Keychain |
+| User-Keychain-Export | Nur `mobilePandaAccountManager:com.amazon.Lassen` = DSN (Device-ID). ACCOUNT_SECRET und per-Book-Keys sind in der Data-Protection-Keychain unter `agrp = J7P34ALZ5R.com.amazon.Lassen`, SEP-gesichert, offline nicht entschlüsselbar |
+| Documents-Folder der Container-App | Enthält nur leere Stub-Plists (`assets.plist`, `downloads.plist`, `voucher-modules.plist`, `syncFileMetadata.plist` — je 42 B). fs_usage-Pfade wie `voucher-modules.plist/book.kcr` waren failed syscalls (ENOTDIR), kein Fund |
+| Binary-Modifikation / Re-Signing | Bricht Amazon-Team-ID-Bindung in Keychain-AppGroup-ACL → verlorener Keychain-Zugriff → App kann sich nicht mehr authentifizieren |
+
+**Noch nicht empirisch abgeschlossen**: HTTPS-MITM mit mitmproxy + system-trusted CA (Smoketest-Doku in `packages/keychain-probe/scripts/recon/mitm-smoketest.md`). Erwartung: Amazon pinnt Certs auf DRM-Endpunkten. Würde nach aktuellem Kenntnisstand wahrscheinlich fehlschlagen und bringt auch im Erfolgsfall nur ACCOUNT_SECRET, nicht die per-Book-Keys direkt — also einen Schritt näher, nicht die Lösung. Nicht mehr verfolgt.
+
+**Entscheidung**: Projekt in diesem Strang schließen. Die ausgearbeiteten Bausteine bleiben nutzbar (siehe `docs/00-state.md` und `packages/*`):
+- Catalog-CLI funktioniert auf jedem macOS ohne Spezialrechte.
+- Voucher-Parser + DRMION-Chunks-Reader funktionieren auf jedem macOS.
+- Enrollment-Workflow funktioniert einmal-pro-Buch auf SIP=off-macOS.
+- DRMION-Format, Ion-Struktur und LZMA-alone-Layout sind dokumentiert (`docs/10-filesystem.md`, `docs/20-keychain-probe.md`).
+
+**Alternative Extraktions-Wege, die ohne SIP-off funktionieren und aussichtsreicher sind**:
+
+1. **Kindle Cloud Reader (`read.amazon.com`) + Headless Browser** — Puppeteer/Playwright, DOM-Scraping des gerenderten Buch-Contents. Nicht OCR, echter Text. Strukturtreu (HTML → Markdown). Referenz: [`transitive-bullshit/kindle-ai-export`](https://github.com/transitive-bullshit/kindle-ai-export) (MIT, TS).
+
+2. **UI-Automation der Lassen-App + Apple Vision OCR** — AppleScript/Accessibility-API + `screencapture` + Vision-Framework. On-device, keine Cloud-Kosten. Funktioniert auf SIP=on, braucht TCC-Permissions für Accessibility + Screen Recording. Details in `docs/12-ui-ocr-fallback.md`.
+
+3. **Jailbroken iOS-Device + Frida auf Kindle iOS-App** — gleicher Codestamm wie Lassen-Catalyst, aber auf iOS kommt man per Jailbreak an Memory. Keine Mac-SIP-Änderung nötig, braucht aber separates Device.
+
+Für einen Produktionsweg, der auf stock-macOS ohne Sonderrechte funktioniert und strukturtreue Ausgabe liefert, ist **Option 1 (Cloud Reader DOM Scraping)** die realistischste. Technisch ist es gegenüber OCR-Varianten präziser (kein Vision-Pass nötig), der Code ist TS-nativ, das Referenz-Projekt aktiv.
+
+**Konsequenzen**:
+- Runtime-Packages (Phase 3–5) **nicht mehr gebaut** in diesem Strang, weil sie ohne einen skalierbaren Enrollment-Weg nur einen bereits-enrolled-OWW-Sonderfall absichern würden — zu wenig Nutzen.
+- Repo bleibt als Forschungsartefakt stehen, mit voll funktionsfähigem Catalog + dokumentiertem DRMION-Format für zukünftige Arbeiten.
+
+---
+
 ## ADR-006 — Enrollment-Architektur (einmalig) + Runtime (keychain-los)
 
 **Datum**: 2026-04-17

@@ -1,101 +1,66 @@
 # Live Status
 
-> Diese Datei wird **nach jedem substanziellen Arbeitsblock** aktualisiert. Sie ist die einzige "lebende" Doku — phasenspezifische Notizen landen in den jeweiligen `NN-*.md`-Dateien.
+> Diese Datei wurde während der aktiven Entwicklung **nach jedem substanziellen Arbeitsblock** aktualisiert. Sie hält den Endstand fest.
 
 ## Aktueller Stand
 
-**Phase**: 2c abgeschlossen, bereit für Phase 3
-**Ampel**: 🟢
+**Phase**: Forschungs-Strang abgeschlossen.
+**Ampel**: 🟡 Teil-Erfolg. Lokale Lassen-RE funktioniert mit SIP=off (Enrollment-Modus). SIP-frei nicht erreichbar. Pragmatischere Route ist Cloud Reader DOM Scraping — außerhalb dieses Repos.
 **Lassen-Version (referenziert)**: 7.56, Build 1.430240.10
-**macOS**: Darwin 25.3.0 (Tahoe-Zeitraum)
-**SIP**: deaktiviert (Nutzerangabe)
+**macOS-Versionen getestet**: Darwin 25.3.0 (SIP=off, Primär-Mac) und macOS 26.3.1 Build 25D2128 Apple Silicon (SIP=on, Test-Mac)
+**SIP-Anforderung für das was wir gebaut haben**: für Enrollment **zwingend aus**, für Runtime der Teil-Pakete nicht nötig.
 
-## Letzter Schritt
+## Was funktioniert
 
-**Phase 2c — Enrollment-Pipeline steht** ✓. `kindle-enroll enroll <ASIN>` läuft End-to-End: Bundle-Metadaten laden → lldb-Memory-Dump → Brute-Force über 5 Chunks → `keys.json` schreiben. Für OWW: 33 Sekunden, Key byte-identisch mit Phase 2b-Fund bestätigt.
+- **`@kindle/catalog`** — listet lokal heruntergeladene KFX-Bücher mit Titel, Fortschritt, Größe, Bundle-Inventar und Cover-URL. Keine Sonderrechte. ✓
+- **`@kindle/drmion` (Voucher + DRMION-Parser)** — parst on-disk `.voucher`- und `.azw8`-Dateien zu strukturierten Typen. Keine Sonderrechte. ✓
+- **`@kindle/keychain-probe` (Enrollment)** — `kindle-enroll enroll <ASIN>`: zieht per lldb den per-book AES-Key aus Lassens Arbeitsspeicher und persistiert ihn in `~/.config/kindle-extractor/keys.json`. **Funktioniert nur auf SIP=off.** Verifiziert für B0090RVGW0 (On Writing Well) — 33 Sekunden End-to-End, recovery AES-128-Key `a931438314febc3641495ec212eae24d`.
 
-Architektur ist jetzt sauber in drei Stufen getrennt:
-- **Enrollment** (einmal pro Buch, SIP-off ODER TCC "Developer Tools" nötig): extrahiert Content-Key aus Lassens Heap → `~/.config/kindle-extractor/keys.json`.
-- **Runtime** (jedes macOS, keine Spezialrechte): liest `keys.json` + `.azw8` → Markdown/ePub. Kommt in Phase 3–5.
-- **Key-Rotation**: wenn Amazon-Konto wechselt oder Device re-pairt → neues Enrollment.
+## Was nicht gebaut wurde
 
-**TCC-Hypothese widerlegt** (2026-04-17, macOS 26.3.1 Apple Silicon): `debugserver` wird auf Kernel-Ebene sofort mit `KERN_FAILURE` abgewiesen, TCC wird gar nicht konsultiert. Auch ad-hoc signiertes Binary mit `com.apple.security.cs.debugger`-Entitlement scheitert identisch (AMFI entfernt restricted Entitlement bei nicht-Apple-legitimierten Signaturen). Definitiv: **Enrollment benötigt SIP=off**. Batch-Workflow (alle Bücher in einer SIP-off-Session) dämpft den Aufwand.
+- **`@kindle/drmion.decryptBook`** — Runtime-Entschlüsselung. Haben wir bewusst nicht mehr gebaut, weil die Enrollment-Beschränkung (SIP=off) den Nutzen begrenzt.
+- **`@kindle/kfx-parser`** — KFX/Ion-Parser für strukturierten Buch-Content.
+- **`@kindle/exporter`** — Markdown + ePub Emitter.
 
-**Phase 2b — Content-Key extrahiert!** 🎯. Für "On Writing Well" (ASIN B0090RVGW0) ist die AES-128-Key-bytesequenz für `amzn1.drm-key.v1.b0aec2ee-f4d6-4d4b-a19f-cd8903e52739` = **`a931438314febc3641495ec212eae24d`**.
+Diese Pakete existieren als leere Stubs im Repo. Wer den Strang fortsetzen will: das DRMION-Format ist in `docs/20-keychain-probe.md` vollständig dokumentiert.
 
-Weg: LLDB an laufenden Lassen-Prozess (PID 3948, Buch offen) → writeable Regionen < 4 MiB dumpen (235 MiB) → Offline-Brute-Force mit 5 simultanen (Ciphertext, IV)-Paaren aus der `.azw8`, PKCS7-Padding-Validation auf allen. Einziger Treffer = echter Key.
+## Was wir empirisch gelernt haben
 
-End-to-end Verifikation (alle 5 Chunks dekrypted + LZMA-alone-dekomprimiert zu je 10240 Bytes, Chunk 0 beginnt mit "CONT" Header) ✓.
+- Lassen ist eine **Mac Catalyst**-App (`arm64-apple-ios-macabi`), Team-ID `94KV3E626L`, Keychain-AppGroup `J7P34ALZ5R.com.amazon.Lassen`.
+- Voucher-Format (1166 B on-disk): Ion Binary 1.0 mit AES/CBC/PKCS5Padding + HmacSHA256, referenziert `ACCOUNT_SECRET` und `CLIENT_ID` als Named-Key-Derivation-Inputs (Werte im Data-Protection-Keychain).
+- DRMION-Dateien (`.azw8`/`.azw9.res`/`.azw9.md`): 8-Byte-Magic + Ion-Stream mit Klartext-Metadaten (Content-Key-UUID, Cipher-Spec, Voucher-ID, Compression) + (Ciphertext+IV)-Chunks + RSA-Signatur.
+- Pro Chunk: AES-128-CBC-PKCS5 + LZMA-alone (Props 0x5D, Dict 4 MiB, 10240-B Sub-Chunks).
+- Der per-Book AES-Key liegt **plaintext in Lassens Heap** solange das Buch im Reader geöffnet ist. Knock-out-Kriterium für Enrollment ohne laufende App.
 
-**Erkenntnisse zur DRMION-Struktur**:
-- File-Header: 8 Bytes `ea 44 52 4d 49 4f 4e ee`
-- Ion-Stream: Liste von [Metadaten-Struct, (Ciphertext, IV) × N, Signatur]
-- Pro Chunk: AES-128-CBC-PKCS5 + LZMA-alone (Props=0x5D, Dict=4 MiB, Uncompressed-Länge=10240)
-- Metadata enthält `amzn1.drm-key.v1.<uuid>` für Content-Key und Signature-Key, sowie `amzn1.drm-voucher.v1.<uuid>`, "AES/CBC/PKCS5Padding", "SHA256withRSA", "LZMA".
+## Was empirisch nicht ging (macOS 26.3.1 Apple Silicon SIP=on)
 
-**Phase 2a** ✓. Voucher-Parser (1166B disk-format).
+- Apple `debugserver` + TCC "Developer Tools" → `task_for_pid` Kernel-early-reject
+- ad-hoc signiertes Binary mit `com.apple.security.cs.debugger` → AMFI stripped die restricted Entitlement
+- Lokaler Keychain-Zugriff ohne Amazon-Team-ID → `errSecMissingEntitlement`
+- fs_usage + Documents-Folder → keine Plaintext-Key-Writes auf Platte
+- Binary-Modifikation / Re-Signing → würde Keychain-AppGroup-ACL brechen
 
-**Phase 1** ✓. Catalog listet alle 5 KFX-Bücher.
+Details in `docs/30-decisions.md` ADR-007.
 
-Stichprobe aus Live-Run:
+## Empfehlung für wer weitermachen will
 
-| Buch | Fortschritt | Größe |
-|---|---|---|
-| 12 Gesetze der Dummheit | 68,9 % | 2,62 MB |
-| Hooked | 87,1 % | 3,27 MB |
-| I Was Blind But Now I See | 2,7 % | 0,58 MB |
-| Inspired | 36,8 % | 0,56 MB |
-| On Writing Well | 92,6 % | 2,50 MB |
+Die klassische DRM-Umgehungs-Route ist auf modernem macOS Apple Silicon für Produktions-Apps wie Lassen im Wesentlichen geschlossen. Realistische Alternativen, die SIP-frei laufen und Volltext+Struktur liefern:
 
-Autor-Feld bleibt `<verschlüsselt>`, bis Phase 2/3 den Key liefern.
+1. **Kindle Cloud Reader DOM Scraping** (nicht OCR, echter Text aus dem Browser-DOM). Referenz: `transitive-bullshit/kindle-ai-export` (MIT, TS).
+2. **UI-Automation + Apple Vision OCR** (on-device, strukturtreu für Fließtext, schwach bei Tabellen/Formeln).
 
-## Scope-Einschränkung (Nutzer-Klarstellung 2026-04-17)
+Beide erfordern Amazon-Login-Zugriff für das jeweilige Buch, aber keine SIP-/AMFI-Änderung.
 
-- Nur `ZMIMETYPE = 'application/x-kfx-ebook'` + `ZRAWBOOKSTATE = 3` → die 5 KFX-Bücher.
-- Mobipocket (`application/x-mobipocket-ebook`) = alte Instapaper-Exporte, irrelevant.
-- Audible (`audio/audible`) = Begleit-Audiobuch, nicht Extraktionsziel.
+## Verlauf (vollständig)
 
-## Beobachtungen aus DB
-
-- `ZDISPLAYTITLE` ist Klartext-Varchar.
-- `ZDISPLAYAUTHOR` ist **verschlüsseltes BLOB** (16/32/64 Byte AES-CBC-Ciphertext). Key liegt in derselben Quelle wie für die Buchpayloads — Katalog zeigt Autor als `<verschlüsselt>`, bis Phase 2 den Key liefert.
-- `ZPATH` verweist relativ auf `Library/eBooks/<ASIN>/<UUID>`.
-- Fortschritt: `ZRAWCURRENTPOSITION` / `ZRAWMAXPOSITION` (beide plain Integer).
-
-## Nächster Schritt
-
-**Phase 3 — Runtime-Entschlüsselung**. `@kindle/drmion` wird um `decryptBook(bundlePath, keyStore)` erweitert. Der Entschlüsselungs-Pfad nutzt ausschließlich die `keys.json` und den on-disk `.azw8`. Keine LLDB-Abhängigkeit zur Laufzeit. Output: Ein fortlaufender Amazon-Ion-Stream, den Phase 4 (KFX-Parser) weiterverarbeitet.
-
-**Parallel**: Enrollment auf TCC "Developer Tools" + SIP=on verifizieren (anderer Mac / andere Session, Checklist in `docs/21-enrollment.md`).
-
-**Hinweis zu LLDB-Attach** (Nutzer-Tip): Die Kindle-App hat ein Anti-Debug-Verhalten, das beim Kaltstart zu Abstürzen führt. Stabil wird der Attach erst **nach Öffnen eines Buches**. Wenn wir LLDB brauchen, folgen wir dieser Reihenfolge: Lassen starten → Buch öffnen → `lldb -p <pid>`.
-
-## Blocker
-
-Keine.
-
-## Erkannte Bücher (Snapshot)
-
-| ASIN | Titel (aus BookData.sqlite) | Größe | Fortschritt |
-|---|---|---|---|
-| B07MCZSP7M | Inspired: How to Create Tech Products Customers Love | 475 KB | ~37 % |
-| B0090RVGW0 | On Writing Well (30th Anniv.) | — | — |
-| B0C1JLM56Z | 12 Gesetze der Dummheit | — | — |
-| B005VPXXVM | I Was Blind But Now I See | — | — |
-| B00M1JLEBC | Hooked: Wie Sie Produkte erschaffen, die süchtig machen | — | — |
-
-Vollständige Angaben nach Phase 1.
-
-## Verlauf
-
-- **2026-04-17** — Explore-Phase abgeschlossen (drei parallele Agenten: Dateisystem, Tool-Recherche, UI-OCR-Fallback). Plan mit Decision-Gates finalisiert und genehmigt. RE-Pfad gewählt (Keychain → DRMION → KFX → Markdown/ePub). Strikt on-device, keine LLM-APIs.
-- **2026-04-17** — Phase 0 abgeschlossen: pnpm-Monorepo, Doku-Skelett, Agent-Reports als Anhang in `docs/`.
-- **2026-04-17** — Phase 1 abgeschlossen: `@kindle/catalog` liest BookData.sqlite + KSDK-DB, listet 5 KFX-Bücher mit Titel/Progress/Cover. Nutzer-Scope geklärt: nur KFX, keine Mobipocket/Audible-Reste.
-- **2026-04-17** — Phase 2 gestartet: Keychain-Probe + Voucher-Analyse. Erkenntnis: Lassen ist Mac-Catalyst-Build (`arm64-apple-ios-macabi`, Entitlement `keychain-access-groups = J7P34ALZ5R.com.amazon.Lassen`).
-- **2026-04-17** — Ad-hoc-signierte Swift-CLI mit passenden Entitlements wurde von `securityd` silent abgewiesen (Hang in Kernel-Wait). Pivot auf **In-Process-Extraktion per LLDB**.
-- **2026-04-17** — LLDB-Attach funktioniert (SIP off + get-task-allow=false ist hier kein Blocker, AMFI permissive für Drittanbieter-Apps). Memory-Scan findet Ion-BVMs, decrypt-ten Voucher und Key-Registry-Strukturen. Alle 5 Bücher teilen sich dasselbe Buch-Symbol-Dictionary + voucher-uuid-format.
-- **2026-04-17** — **Content-Key gefunden** per Known-Plaintext-Brute-Force (5 Chunks gleichzeitig + PKCS7). AES-128-CBC, LZMA-alone-Kompression, 10240-Byte Sub-Chunks. End-to-end verifiziert.
-- **2026-04-17** — Keychain-Erkundung: Lassens Data-Protection-Keychain hat 10+ Einträge mit `agrp = J7P34ALZ5R.com.amazon.Lassen` (Data-Spalten 2–11 KB groß), aber Per-User/Per-SEP-Verschlüsselung macht sie offline unlesbar. Einziger User-Keychain-Eintrag: `mobilePandaAccountManager:com.amazon.Lassen` = DSN (`822917...`), = wahrscheinlich `CLIENT_ID`.
-- **2026-04-17** — Entscheidung: Enrollment-Architektur. Memory-Brute-Force einmal pro Buch, danach runtime-keychain-los. TCC "Developer Tools" ist plausible SIP-freie Alternative zum SIP-Disable, aber noch nicht verifiziert. ADR-006.
-- **2026-04-17** — **Phase 2c abgeschlossen**: `kindle-enroll enroll <ASIN>` als sauberer TS-CLI. 33s End-to-End für OWW.
-- **2026-04-17** — **SIP=on-Hypothesen widerlegt**: Nutzer-Test auf Zweit-Mac (macOS 26.3.1 Apple Silicon). TCC "Developer Tools" + Apple `debugserver` → `KERN_FAILURE` nach 1 ms ohne TCC-Konsultation. Ad-hoc signiertes Binary mit public `cs.debugger`-Entitlement (via `tfp-probe/probe-debugger`) → identisch fail. AMFI entfernt restricted Entitlements bei nicht-Apple-legitimierten Signaturen. Enrollment **zwingend mit SIP=off**. Batch aller 5 Bücher in einer Session praktikabel. ADR-006 aktualisiert, ONBOARDING.md neu strukturiert.
+- **2026-04-17** — Explore-Phase abgeschlossen (drei parallele Research-Agenten: Dateisystem-Erkundung, Extraktions-Tool-Landschaft, UI-OCR-Fallback).
+- **2026-04-17** — RE-Pfad gewählt (Keychain → DRMION → KFX → Markdown/ePub). On-device-Constraint.
+- **2026-04-17** — Phase 0 abgeschlossen: pnpm-Monorepo, Doku-Skelett.
+- **2026-04-17** — Phase 1 abgeschlossen: `@kindle/catalog` listet alle 5 KFX-Bücher.
+- **2026-04-17** — Phase 2a abgeschlossen: Voucher-Parser für `amzn1.drm-voucher.v1.*.voucher`.
+- **2026-04-17** — Phase 2b abgeschlossen: Memory-Brute-Force-Extraktion des AES-Content-Keys aus Lassens Heap.
+- **2026-04-17** — Phase 2c abgeschlossen: `kindle-enroll enroll <ASIN>` als CLI, 33 s End-to-End.
+- **2026-04-17** — Zweit-Mac mit SIP=on getestet. TCC-Developer-Tools-Hypothese empirisch widerlegt (Kernel-early-reject ohne TCC-Konsultation).
+- **2026-04-17** — `tfp-probe`-Minimal-Binary getestet: ad-hoc `cs.debugger` auch SIP=on gescheitert (AMFI stripped Entitlement).
+- **2026-04-17** — Passive Recon: `fs_usage` + User-Keychain-Dump + Documents-Folder-Analyse. **Null verwertbares SIP-freies Material gefunden.** Lassen ist Security-technisch sauber gebaut.
+- **2026-04-17** — Projekt in diesem Strang formell geschlossen (ADR-007). Repo bleibt als Forschungsartefakt + Doku-Referenz, Produktions-UX soll via Cloud Reader / UI-OCR (außerhalb dieses Repos) realisiert werden.

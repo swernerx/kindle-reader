@@ -1,8 +1,8 @@
-# Onboarding — zweite Maschine (Verifikation SIP=on + TCC Developer Tools)
+# Onboarding — für eine neue Entwicklungs-Session
 
-Dieses Dokument richtet sich an eine Nachfolge-Session auf einer zweiten Maschine. Ziel: empirisch bestätigen, dass die in Phase 2c gebaute Enrollment-Pipeline **ohne Deaktivieren von SIP** funktioniert, sobald das aufrufende Terminal die TCC-Permission **"Developer Tools"** erhalten hat.
-
-Sekundäres Ziel: einen ersten End-to-End-Lauf gegen ein Buch durchführen und die Ergebnisse der Checkliste in `docs/21-enrollment.md` dort festhalten.
+> **Update 2026-04-17**: Die ursprüngliche Test-Hypothese (TCC "Developer Tools" reicht für `task_for_pid` auf Lassen) wurde empirisch **widerlegt**. Das Kernel blockiert `task_for_pid` auf Lassen auch mit TCC-Freischaltung sofort mit `KERN_FAILURE`. Zusätzlich wurde die Ad-hoc-`cs.debugger`-Entitlement-Variante getestet — ebenfalls gescheitert (AMFI entfernt restricted Entitlements ohne Apple-Approval). Details in `docs/30-decisions.md` ADR-006 + ADR-007.
+>
+> Dieses Dokument bleibt als Onboarding für jede Form von Nachfolge-Arbeit erhalten, aber der Sinn des Test-Durchlaufs hat sich geändert: **Enrollment funktioniert nur mit SIP=off**. Die ursprünglich geplante SIP-freie Pipeline existiert nicht.
 
 ## Voraussetzungen auf der neuen Maschine
 
