@@ -1,0 +1,16 @@
+{
+  "name": "kindle-extractor",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Local Kindle (Lassen, macOS) book extractor — Markdown/ePub",
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "kindle": "pnpm --filter @kindle/cli start"
+  }
+}

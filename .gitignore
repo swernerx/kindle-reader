@@ -1,0 +1,28 @@
+node_modules/
+dist/
+build/
+.DS_Store
+*.log
+
+# Never commit real book files or extracted keys
+samples/
+out/
+*.azw
+*.azw8
+*.azw9
+*.azw9.res
+*.azw9.md
+*.kfx
+*.voucher
+*.asc
+secrets/
+*.key
+keys.json
+
+# Swift build artifacts
+.build/
+*.xcodeproj/
+Package.resolved
+
+# TS
+*.tsbuildinfo
